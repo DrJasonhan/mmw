@@ -71,34 +71,22 @@ DataOneChirpMultiFrame = np.concatenate((
     axis=0).T
 
 # 根据FlagRangeCellSelection标志选择目标位置
-if proc.FlagRangeCellSelection == 0:
-    # 计算每个距离单元在所有帧中的总功率
-    totalPowerMultiFrame = np.sum(np.abs(DataOneChirpMultiFrame) ** 2, axis=1)
-    # 创建距离轴
-    Raxis = np.arange(0, radar.numADCSamples) * radar.Rres
-    # 限定兴趣范围内的总功率
-    totalPowerMultiFrameOfInterest = totalPowerMultiFrame[(Raxis <= proc.RangeOfInterest[1])]
-    # 找到功率最大的距离单元
-    IndexRowTarget = np.argmax(totalPowerMultiFrameOfInterest)
-    # IndexRowTarget =19
-    SeqOfRangeCell = 0
-    # 获取该距离单元的数据
-    dataOfInterestMultiFrame = DataOneChirpMultiFrame[IndexRowTarget + SeqOfRangeCell, :]
-elif proc.FlagRangeCellSelection == 1:
-    # 选择最大功率的距离单元
-    dataOfInterestMultiFrame = np.zeros(proc.numFrames)
-    # 遍历每一帧
-    for idxFrame in range(proc.numFrames):
-        # 获取当前帧的数据
-        DataOneChirpOneFrame = DataOneChirpMultiFrame[:, idxFrame]
-        # 找到当前帧功率最大的距离单元
-        IndexRowTarget = np.argmax(np.abs(DataOneChirpOneFrame))
-        # 获取该距离单元的数据
-        dataOfInterestMultiFrame[idxFrame] = DataOneChirpMultiFrame[IndexRowTarget, idxFrame]
+# 计算每个距离单元在所有帧中的总功率
+totalPowerMultiFrame = np.sum(np.abs(DataOneChirpMultiFrame) ** 2, axis=1)
+# 创建距离轴
+Raxis = np.arange(0, radar.numADCSamples) * radar.Rres
+# 限定兴趣范围内的总功率
+totalPowerMultiFrameOfInterest = totalPowerMultiFrame[(Raxis <= proc.RangeOfInterest[1])]
+# 找到功率最大的距离单元
+IndexRowTarget = np.argmax(totalPowerMultiFrameOfInterest)
+# IndexRowTarget =19
+SeqOfRangeCell = 0
+# 获取该距离单元的数据
+dataOfInterestMultiFrame = DataOneChirpMultiFrame[IndexRowTarget + SeqOfRangeCell, :]
 
 
 # 定义带通滤波器函数
-def filter_bandpass_1(numtaps, low_cutoff, high_cutoff, signal):
+def filter_bandpass(numtaps, low_cutoff, high_cutoff, signal):
     """
     使用remez算法设计FIR带通滤波器并应用于信号。
 
