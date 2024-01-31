@@ -1,266 +1,265 @@
-"""
-将任博士的matlab代码转化为python代码
-"""
 import numpy as np
-import scipy.io as sio
-from scipy.signal import remez, lfilter, firwin, firls
-
-import matplotlib
-
-# 设置matplotlib的backend为TkAgg，这样可以在多数环境中显示图形界面
-matplotlib.use('TkAgg')
+from scipy.fft import fft, fftshift
+from scipy.signal import butter, lfilter, hilbert
 import matplotlib.pyplot as plt
 
-# 设置Matplotlib支持中文字符
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
-plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
+# Constants
+numADCSamples = 200
+numADCBits = 16
+numTX = 1
+numRX = 4
+chirpLoop = 2
+Fs = 4e6
+c = 3e8
+ts = numADCSamples / Fs
+slope = 64.985e12
+B_valid = ts * slope
+detaR = c / (2 * B_valid)
+startFreq = 60.25e9
+lambda_radar = c / startFreq
+isReal = 0
+
+# Read Bin file
+filename = 'data/adc_data22.bin'
+with open(filename, 'rb') as f:
+    adcDataRow = np.fromfile(f, dtype=np.int16)
+
+# Process data depending on ADC bits
+if numADCBits != 16:
+    l_max = 2**(numADCBits - 1) - 1
+    adcDataRow[adcDataRow > l_max] -= 2**numADCBits
+
+process_num = 1024
+fileSize = process_num * 2 * numADCSamples * numTX * numRX * 2
+PRTnum = fileSize // (numADCSamples * numRX)
+fileSize = PRTnum * numADCSamples * numRX
+adcData = adcDataRow[:fileSize]
+
+# Complex data reshape
+if isReal:
+    numChirps = fileSize // (numADCSamples * numRX)
+    LVDS = np.reshape(adcData, (numChirps, numADCSamples * numRX))
+else:
+    numChirps = fileSize // (2 * numADCSamples * numRX)
+    LVDS = adcData[0:fileSize:2] + 1j * adcData[1:fileSize:2]
+    LVDS = np.reshape(LVDS, (numChirps, numADCSamples * numRX))
+
+# Reorganize data
+adcData = np.zeros((numRX, numChirps * numADCSamples), dtype=np.complex_)
+for row in range(numRX):
+    adcData[row, :] = LVDS[:, row * numADCSamples:(row + 1) * numADCSamples].flatten()
+
+retVal = np.reshape(adcData[0, :], (numADCSamples, numChirps))
+process_adc = np.zeros((numADCSamples, numChirps // 2), dtype=np.complex_)
+for nchirp in range(0, numChirps, 2):
+    process_adc[:, nchirp // 2] = retVal[:, nchirp]
+
+# Perform FFT
+fft1d = np.abs(fft(process_adc, axis=0))
+X, Y = np.meshgrid(np.arange(numADCSamples) * detaR, np.arange(numChirps // 2))
+
+# Plotting Range FFT
+plt.figure()
+plt.plot(np.arange(numADCSamples) * detaR, 20 * np.log10(fft1d[:, 1]))
+plt.xlabel('Range (m)')
+plt.ylabel('Magnitude (dB)')
+plt.title('Range Dimension FFT of a single chirp')
+
+plt.figure()
+plt.pcolormesh(X, Y, 20 * np.log10(fft1d.T))
+plt.xlabel('Range (m)')
+plt.ylabel('Chirp number')
+plt.title('Range Dimension - 1D FFT Result')
+plt.colorbar()
+
+"""================================"""
+
+# Set parameters for phase unwrapping
+RangFFT = 256
+fft_data_last = np.zeros(RangFFT)  # Energy amplitude accumulation
+range_max = 0
+adcdata = process_adc
+numChirps = adcdata.shape[1]  # Number of chirps, updated to 1024
+
+# Perform range-dimension FFT
+fft_data = fft(adcdata, n=RangFFT, axis=0)
+fft_data = fft_data.T  # Transpose to get 1024 * 256 matrix
+
+# Calculate the magnitude (absolute value) of the complex FFT result
+fft_data_abs = np.abs(fft_data)
+
+# Adjust the distance resolution because the sample points have been expanded to 256
+deltaR = Fs * c / (2 * slope * RangFFT)
+fft_data_abs[:, :10] = 0  # Zeroing to remove DC component
+
+# Generate a 3D plot
+fft11d = fft_data_abs
+
+# Create meshgrid for 3D plot
+M, N = np.meshgrid(np.arange(RangFFT) * deltaR, np.arange(1, numChirps + 1))
+
+# Plot the 3D mesh
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.plot_surface(M, N, fft11d, cmap='viridis')
+ax.set_xlabel('Distance (m)')
+ax.set_ylabel('Chirp pulse number')
+ax.set_zlabel('Magnitude')
+ax.set_title('After Static Clutter Removal: Range-Dimension 1D FFT Result')
+plt.show()
 
 
-# 定义处理参数的类
-class ProcPara():
-    """ 处理参数类 """
-
-    def __init__(self):
-        self.FlagRangeCellSelection = 0  # 距离单元选择标志（0表示选择最大功率单元）
-        self.FlagProcMethod = 1  # 处理方法标志
-        self.numFrames = 4000  # 帧数
-        self.RangeOfInterest = [0.3, 4]  # 兴趣范围(m)
 
 
-# 定义雷达参数的类
-class RadarPara():
-    def __init__(self):
-        self.numADCSamples = 256  # ADC样本数
-        self.numADCBits = 16  # ADC位数
-        self.numTx = 3  # 发射器数量
-        self.numRx = 4  # 接收器数量
-        self.numLanes = 2  # 数据通道数量
-        self.isReal = 0  # 是否是实数
-        self.c = 3e8  # 光速(m/s)
-        self.fc = 77e9  # 载频(Hz)
-        """
-        KChirp 线性调频(Linear Frequency Modulation, LFM) 信号的调频斜率，即频率随时间变化的速率。较大的斜率可产生较短的压缩脉冲宽度，从而获得较高的距离分辨率。
-        """
-        self.KChirp = 70.006e12  # 线性调频斜率(Hz/s)
-        self.TIdleTime = 100e-6  # 空闲时间(s)
-        self.TRampEndTime = 56.87e-6  # 斜坡结束时间(s)
-
-        self.fs = 5e6  # 采样频率(Hz)
-        self.PeriodFrame = 10e-3  # 帧周期(s)
-        self.numChirpLoops = 16  # 每帧chirp循环数
-        """
-        PRT(Pulse Repetition Time) ,连续两个发射脉冲之间的时间间隔。
-        """
-        self.PRT = self.TIdleTime + self.TRampEndTime  # 脉冲重复时间(s)
-        self.B = self.KChirp * self.numADCSamples / self.fs  # 带宽(Hz)
-        self.Rres = self.c / 2 / self.B  # 距离分辨率(m)
-        self.Vmax = self.c / 4 / self.PRT / self.fc  # 最大速度(m/s)
-        self.Vres = self.c / 2 / self.PRT / self.fc / self.numChirpLoops  # 速度分辨率(m/s)
+"""================================"""
 
 
-# 创建处理参数和雷达参数的实例
-proc = ProcPara()
-radar = RadarPara()
+# Extract phase (phase arctangent) - 提取相位 (相位反正切)
+real_data = np.real(fft_data)  # Real part - 实部
+imag_data = np.imag(fft_data)  # Imaginary part - 虚部
 
-# 加载数据
-mat_data = sio.loadmat('data/test_wl70summer.mat')  # 从MAT文件读取数据
-DataOneChirpMultiFrame = mat_data['DataOneChirpMultiFrame_transpose']  # 获取数据
-# 如果数据帧数不足，使用零填充至指定的帧数
-DataOneChirpMultiFrame = np.concatenate((
-    DataOneChirpMultiFrame, np.zeros((proc.numFrames - DataOneChirpMultiFrame.shape[0], radar.numADCSamples))),
-    axis=0).T
+# Calculate the phase for each range bin using atan2 for the entire matrix
+angle_fft = np.arctan2(imag_data, real_data)
 
-# 根据FlagRangeCellSelection标志选择目标位置
-# 计算每个距离单元在所有帧中的总功率
-totalPowerMultiFrame = np.sum(np.abs(DataOneChirpMultiFrame) ** 2, axis=1)
-# 创建距离轴
-Raxis = np.arange(0, radar.numADCSamples) * radar.Rres
-# 限定兴趣范围内的总功率
-totalPowerMultiFrameOfInterest = totalPowerMultiFrame[(Raxis <= proc.RangeOfInterest[1])]
-# 找到功率最大的距离单元
-IndexRowTarget = np.argmax(totalPowerMultiFrameOfInterest)
-# IndexRowTarget =19
-SeqOfRangeCell = 0
-# 获取该距离单元的数据
-dataOfInterestMultiFrame = DataOneChirpMultiFrame[IndexRowTarget + SeqOfRangeCell, :]
+# Range-bin tracking - 找出能量最大的点，即人体的位置
+# To find the range bin with the maximum energy
+range_max = 0
+max_num = 0
 
+# Initialize a storage array for energy accumulation
+fft_data_last = np.zeros(RangFFT)
 
-# 定义带通滤波器函数
-def filter_bandpass(numtaps, low_cutoff, high_cutoff, signal):
-    """
-    使用remez算法设计FIR带通滤波器并应用于信号。
+for j in range(RangFFT):
+    # Check if the range bin is within the specified distance limits
+    if (j * detaR) < 2.5 and (j * detaR) > 0.5:
+        # Sum the energies for a non-coherent accumulation
+        fft_data_last[j] = np.sum(fft_data_abs[:, j])
 
-    参数:
-    numtaps: 滤波器阶数。
-    low_cutoff: 低截止频率（归一化到奈奎斯特频率）。
-    high_cutoff: 高截止频率（归一化到奈奎斯特频率）。
-    signal: 输入信号。
+        # Update the maximum energy and corresponding bin number
+        if fft_data_last[j] > range_max:
+            range_max = fft_data_last[j]
+            max_num = j
 
-    返回:
-    filtered_signal: 应用带通滤波器后的信号。
-    """
-    # 使用Remez算法设计FIR带通滤波器
-    # 注意：remez函数中的频率向量需要归一化到[0, 0.5]，因为1对应奈奎斯特频率
-    coefficients = remez(numtaps,
-                         [0, 0.999 * low_cutoff, low_cutoff, high_cutoff, high_cutoff * 1.0001, 1],
-                         [0, 1, 0],  # 增益向量，对应于阻带、通带、阻带
-                         [1, 1, 1])  # 权重向量，通常设置为相等权重
-    # 使用设计的FIR滤波器滤波信号
-    filtered_signal = lfilter(coefficients, [1], signal)
+# Extract phase from the range bin with the maximum energy
+angle_fft_last = angle_fft[:, max_num]
 
-    return filtered_signal
+# Phase difference
+angle_fft_diff = np.diff(angle_fft_last)
+angle_fft_diff = np.insert(angle_fft_diff, 0, 0)  # Inserting a zero at the beginning to maintain array size
+
+# Moving average filtering
+window_size = 5  # Corresponding to 0.25s if the chirp rate is 20 Hz
+phi_smooth = np.convolve(angle_fft_diff, np.ones(window_size) / window_size, mode='same')
+
+# FFT of the phase signal
+N1 = len(phi_smooth)
+FS = 20
+fft_phase = np.abs(fft(phi_smooth))
+f = np.arange(N1) * (FS / N1)
+
+# Bandpass filter for breath signal
+breath_pass = butter(4, [0.1, 0.5], btype='bandpass', fs=FS)
+breath_data = lfilter(breath_pass[0], breath_pass[1], phi_smooth)
 
 
-def filter_bandpass_original(numtaps, low_cutoff, high_cutoff, signal, fs):
-    """
-    使用firls算法设计FIR带通滤波器并应用于信号。
+"""================================"""
+# Spectral Estimation - FFT - Peak Interval
+N1 = len(breath_data)
+fs = 20  # Sampling rate of the breath/heartbeat signal
+fshift = np.arange(-N1/2, N1/2) * (fs / N1)  # Zero-centered frequency range for plotting
 
-    参数:
-    numtaps: 滤波器阶数。
-    low_cutoff: 低截止频率（物理频率）。
-    high_cutoff: 高截止频率（物理频率）。
-    signal: 输入信号。
-    fs: 采样频率。
+# Perform FFT and shift it to center zero frequency
+breath_fre = np.abs(fftshift(fft(breath_data)))  # Double-sided spectrum (magnitude)
 
-    返回:
-    filtered_signal: 应用带通滤波器后的信号。
-    """
-    # 归一化截止频率
-    nyquist = fs / 2
-    f1 = low_cutoff / nyquist
-    f2 = high_cutoff / nyquist
+# Plot the spectrum
+plt.figure()
+plt.plot(fshift[:N1//2], breath_fre[:N1//2])  # Plot only the positive frequencies
+plt.xlabel('Frequency (f/Hz)')
+plt.ylabel('Magnitude')
+plt.title('Breath Signal FFT')
 
-    # 设计FIR带通滤波器
-    coefficients = remez(numtaps,
-                         [0, 0.999 * f1, f1, f2, f2 * 1.0001, 1],
-                         [0, 1, 0],  # 增益向量，对应于阻带、通带、阻带
-                         [1, 1, 1])  # 权重向量，通常设置为相等权重
-    # 使用设计的FIR滤波器滤波信号
-    filtered_signal = lfilter(coefficients, [1], signal)
+# Search for the peak in the spectrum to determine the breath rate
+breath_fre_max = np.max(breath_fre)
+breath_index = np.argmax(breath_fre)
 
-    return filtered_signal
+# Calculate breath rate
+breath_count = (fs * (N1/2 - (breath_index - 1)) / N1) * 60
+
+# Print the breath rate
+print(f"Breath Rate: {breath_count} breaths per minute")
+
+# Show the plot
+plt.show()
 
 
-# 相位提取，对感兴趣数据的相位进行解包
-SigUnwrapped = np.unwrap(np.angle(dataOfInterestMultiFrame))
+"""================================"""
 
-"""
-以上步骤，和matlab结果完全一致
-——20240123
-"""
-# 设计FIR带通滤波器，并应用于解包后的相位信号，以提取呼吸相关信号
-# b = firwin(51, [0.2 / 100, 0.6 / 100], pass_zero=False)
-freq_measure = radar.numChirpLoops / radar.PeriodFrame
-SigFiltered_RR = filter_bandpass(51, 0.2, 0.6, SigUnwrapped, 100)
 
-# 心跳信号处理，设计带通滤波器，并应用于解包后的相位信号，以提取心跳相关信号
-low_hb = 1  # 心跳信号低截止频率
-high_hb = 2.5  # 心跳信号高截止频率
-SigFiltered_HB = filter_bandpass(51, low_hb, high_hb, SigUnwrapped, 100)
 
-# 绘制呼吸
-dataOfInterest = SigFiltered_RR
-Xplot = np.arange(0, proc.numFrames) * radar.PeriodFrame
-Yplot = dataOfInterest
 
-# Plot the respiration signal
-plt.figure(figsize=(10, 8))
-plt.plot(Xplot, Yplot, color='r', linestyle='-', linewidth=2)
-plt.grid(True)
+# Bandpass filter for heart signal
+heart_pass = butter(8, [0.8, 2.0], btype='bandpass', fs=FS)
+heart_data = lfilter(heart_pass[0], heart_pass[1], phi_smooth)
+
+
+"""================================"""
+# Heart rate signal processing
+N1 = len(heart_data)
+fs = 20  # Sampling rate of the heart rate signal
+fshift = np.arange(-N1/2, N1/2) * (fs / N1)  # Zero-centered frequency range
+f = np.arange(0, N1) * (fs / N1)  # Frequency range for each point
+
+# Perform FFT and shift
+heart_fre = np.abs(fftshift(fft(heart_data)))  # Double-sided spectrum (magnitude)
+heart = np.abs(fft(heart_data))  # Single-sided spectrum (magnitude)
+
+# Plot the heart rate signal FFT
+plt.figure()
+plt.plot(f[:200], heart[:200])  # Only plot the first 200 points for a closer look
+plt.xlabel('Frequency (f/Hz)')
+plt.ylabel('Magnitude')
+plt.title('Heart Rate Signal FFT')
+
+# Search for the maximum in the first half of the spectrum
+heart_fre_max = np.max(heart_fre[:N1//2])
+heart_index = np.argmax(heart_fre[:N1//2])
+
+# Determine if a heartbeat is present based on magnitude confidence
+if heart_fre_max < 1e-2:
+    heart_index = N1  # Set to an invalid index if no heartbeat is detected
+
+# Calculate the heart rate
+heart_count = (fs * (N1/2 - (heart_index - 1)) / N1) * 60  # Convert to beats per minute
+
+# Print the heart rate
+print(f"Heart Rate: {heart_count} beats per minute")
+
+# Show the plot
+plt.show()
+
+
+"""================================"""
+
+# Extract envelope for heart signal
+analytic_signal = hilbert(heart_data)
+env_envelope = np.abs(analytic_signal)
+
+# Plotting the results
+plt.figure()
+plt.plot(env_envelope)
 plt.xlabel('Time (s)')
-plt.ylabel('Phase (rad)')
-plt.show()
+plt.ylabel('Amplitude')
+plt.title('Heartbeat Envelope')
 
-# Plot the respiration signal with Chinese labels
-plt.figure(figsize=(10, 8))
-plt.plot(Xplot, Yplot, color='k', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('时间/s')
-plt.ylabel('相位/rad')
-plt.show()
+# Normalizing heartbeat signal
+normalized_heartbeat = heart_data / env_envelope
 
-# Plot, spectrum
-Yplotfft = np.fft.fft(dataOfInterest)
-Yplotfftdb = 20 * np.log10(np.abs(Yplotfft) / np.max(np.abs(Yplotfft)))
-Xaxis = np.arange(0, proc.numFrames) / proc.numFrames / radar.PeriodFrame
-
-# Plot the spectrum of the respiration signal
-plt.figure(figsize=(10, 8))
-plt.plot(Xaxis, Yplotfftdb, color='r', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('Frequency (Hz)')
-plt.ylabel('Amplitude (dB)')
-plt.xlim([0, 2])
-plt.ylim([-40, None])
-plt.show()
-
-# Plot the spectrum of the respiration signal with Chinese labels
-plt.figure(figsize=(10, 8))
-plt.plot(Xaxis, Yplotfftdb, color='k', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('频率/Hz')
-plt.ylabel('幅度/dB')
-plt.xlim([0, 2])
-plt.ylim([-40, None])
-plt.show()
-
-# Find the respiration rate
-freq_range_id = (Xaxis >= 0.2) & (Xaxis <= 0.6)
-freq_range_db = Yplotfftdb[freq_range_id]
-max_db_id = np.argmax(freq_range_db)
-max_db_id += np.where(freq_range_id)[0][0]
-RR = Xaxis[max_db_id] * 60
-print(f'The respiration rate is {RR} bpm')
-
-# 绘制心跳
-dataOfInterest = SigFiltered_HB
-Xplot = np.arange(0, proc.numFrames) * radar.PeriodFrame
-Yplot = dataOfInterest
-
-# Plot the heartbeat signal
-plt.figure(figsize=(10, 8))
-plt.plot(Xplot, Yplot, color='r', linestyle='-', linewidth=2)
-plt.grid(True)
+plt.figure()
+plt.plot(normalized_heartbeat)
 plt.xlabel('Time (s)')
-plt.ylabel('Phase (rad)')
-plt.show()
+plt.ylabel('Normalized Amplitude')
+plt.title('Normalized Heartbeat Signal')
 
-# Plot the heartbeat signal with Chinese labels
-plt.figure(figsize=(10, 8))
-plt.plot(Xplot, Yplot, color='k', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('时间/s')
-plt.ylabel('相位/rad')
-plt.show()
-
-# Plot, spectrum
-Yplotfft = np.fft.fft(dataOfInterest)
-Yplotfftdb = 20 * np.log10(np.abs(Yplotfft) / np.max(np.abs(Yplotfft)))
-Xaxis = np.arange(0, proc.numFrames) / proc.numFrames / radar.PeriodFrame
-
-# Plot the spectrum of the heartbeat signal
-plt.figure(figsize=(10, 8))
-plt.plot(Xaxis, Yplotfftdb, color='r', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('Frequency (Hz)')
-plt.ylabel('Amplitude (dB)')
-plt.xlim([0, 2])
-plt.show()
-
-# Plot the spectrum of the heartbeat signal with Chinese labels
-plt.figure(figsize=(10, 8))
-plt.plot(Xaxis, Yplotfftdb, color='k', linestyle='-', linewidth=2)
-plt.grid(True)
-plt.xlabel('频率/Hz')
-plt.ylabel('幅度/dB')
-plt.xlim([0, 2])
-plt.ylim([-40, None])
-plt.show()
-
-# Find the heartbeat rate
-freq_range_id = (Xaxis >= low_hb) & (Xaxis <= high_hb)
-freq_range_db = Yplotfftdb[freq_range_id]
-max_db_id = np.argmax(freq_range_db)
-max_db_id += np.where(freq_range_id)[0][0]
-HR = Xaxis[max_db_id] * 60
-print(f'The Heartbeat rate is {HR} bpm')
