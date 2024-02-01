@@ -65,24 +65,24 @@ for row in range(numRX):
         adcData_reorganized[row, start_idx:end_idx] = LVDS[i, row * numADCSamples:(row + 1) * numADCSamples]
 
 
-retVal = np.reshape(adcData_reorganized[0, :], (numADCSamples, numChirps))
+retVal = np.reshape(adcData_reorganized[0, :], (numChirps, numADCSamples)).T
 process_adc = np.zeros((numADCSamples, numChirps // 2), dtype=np.complex_)
 for nchirp in range(0, numChirps, 2):
     process_adc[:, nchirp // 2] = retVal[:, nchirp]
 
 # Perform FFT
-fft1d = np.abs(fft(process_adc, axis=0))
+fft1d = np.abs(fft(process_adc, axis=0)).T
 X, Y = np.meshgrid(np.arange(numADCSamples) * detaR, np.arange(numChirps // 2))
 
-# Plotting Range FFT
+# Plotting Range FFT, 20*log10() 意思是将幅度转换为分贝
 plt.figure()
-plt.plot(np.arange(numADCSamples) * detaR, 20 * np.log10(fft1d[:, 1]))
+plt.plot(np.arange(numADCSamples) * detaR, 20 * np.log10(fft1d[0,:]))
 plt.xlabel('Range (m)')
 plt.ylabel('Magnitude (dB)')
 plt.title('Range Dimension FFT of a single chirp')
 
 plt.figure()
-plt.pcolormesh(X, Y, 20 * np.log10(fft1d.T))
+plt.pcolormesh(X, Y, 20 * np.log10(fft1d))
 plt.xlabel('Range (m)')
 plt.ylabel('Chirp number')
 plt.title('Range Dimension - 1D FFT Result')
@@ -115,9 +115,6 @@ fft11d = fft_data_abs
 M, N = np.meshgrid(np.arange(RangFFT) * deltaR, np.arange(1, numChirps + 1))
 
 # Plot the 3D mesh
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
 ax.plot_surface(M, N, fft11d, cmap='viridis')
@@ -127,11 +124,7 @@ ax.set_zlabel('Magnitude')
 ax.set_title('After Static Clutter Removal: Range-Dimension 1D FFT Result')
 plt.show()
 
-
-
-
 """================================"""
-
 
 # Extract phase (phase arctangent) - 提取相位 (相位反正切)
 real_data = np.real(fft_data)  # Real part - 实部
