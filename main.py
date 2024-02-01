@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.fft import fft, fftshift
-from scipy.signal import butter, lfilter, hilbert
+from scipy.signal import butter, lfilter, hilbert, sosfilt
 import matplotlib.pyplot as plt
 
 # Constants
@@ -35,21 +35,37 @@ PRTnum = fileSize // (numADCSamples * numRX)
 fileSize = PRTnum * numADCSamples * numRX
 adcData = adcDataRow[:fileSize]
 
-# Complex data reshape
 if isReal:
     numChirps = fileSize // (numADCSamples * numRX)
-    LVDS = np.reshape(adcData, (numChirps, numADCSamples * numRX))
+    # Reshape the real data into a 2D array with each chirp as a column
+    LVDS = np.reshape(adcData, (numADCSamples * numRX, numChirps))
+    # Transpose to make each row correspond to one chirp
+    LVDS = LVDS.T
 else:
+    # For complex data
     numChirps = fileSize // (2 * numADCSamples * numRX)
-    LVDS = adcData[0:fileSize:2] + 1j * adcData[1:fileSize:2]
-    LVDS = np.reshape(LVDS, (numChirps, numADCSamples * numRX))
+    # Pre-allocate array for complex data
+    LVDS = np.zeros((1,fileSize // 2), dtype=complex)
+    # Combine real and imaginary parts into complex numbers
+    counter = 0;
+    for i in range(0, fileSize-2, 4):
+        LVDS[0,counter] = adcData[i] + 1j * adcData[i + 2]
+        LVDS[0,counter+1] = adcData[i + 1] + 1j * adcData[i + 3]
+        counter +=2
+    # Reshape to a 2D array with each chirp as a column
+    LVDS = np.reshape(LVDS, (numChirps,numADCSamples * numRX))
+    # Transpose to make each row correspond to one chirp
 
-# Reorganize data
-adcData = np.zeros((numRX, numChirps * numADCSamples), dtype=np.complex_)
+# Reorganize data for each receiving antenna
+adcData_reorganized = np.zeros((numRX, numChirps * numADCSamples), dtype=LVDS.dtype)
 for row in range(numRX):
-    adcData[row, :] = LVDS[:, row * numADCSamples:(row + 1) * numADCSamples].flatten()
+    for i in range(numChirps):
+        start_idx = i * numADCSamples
+        end_idx = start_idx + numADCSamples
+        adcData_reorganized[row, start_idx:end_idx] = LVDS[i, row * numADCSamples:(row + 1) * numADCSamples]
 
-retVal = np.reshape(adcData[0, :], (numADCSamples, numChirps))
+
+retVal = np.reshape(adcData_reorganized[0, :], (numADCSamples, numChirps))
 process_adc = np.zeros((numADCSamples, numChirps // 2), dtype=np.complex_)
 for nchirp in range(0, numChirps, 2):
     process_adc[:, nchirp // 2] = retVal[:, nchirp]
@@ -163,6 +179,34 @@ f = np.arange(N1) * (FS / N1)
 # Bandpass filter for breath signal
 breath_pass = butter(4, [0.1, 0.5], btype='bandpass', fs=FS)
 breath_data = lfilter(breath_pass[0], breath_pass[1], phi_smooth)
+"""
+# The sosMatrix and ScaleValues from MATLAB's breath_pass would be provided as follows:
+sosMatrix = np.array([
+    # You would insert the actual coefficients from MATLAB's breath_pass.sosMatrix here
+    # For example:
+    # [b01, b11, b21, a01, a11, a21],
+    # [b02, b12, b22, a02, a12, a22]
+])
+
+ScaleValues = np.array([
+    # You would insert the actual scale values from MATLAB's breath_pass.ScaleValues here
+    # For instance:
+    # 0.0601804080654874, 0.0601804080654874, 1
+])
+
+# Apply the scale values to the sosMatrix
+# The last scale value is applied after filtering, so we exclude it here
+sos = sosMatrix * ScaleValues[:-1].reshape(-1, 1)
+
+# Now apply the SOS filter to your signal
+breath_data = sosfilt(sos, phi_smooth)
+
+# Apply the last scale value to the output
+breath_data *= ScaleValues[-1]
+"""
+
+
+
 
 
 """================================"""
