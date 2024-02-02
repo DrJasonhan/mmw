@@ -248,8 +248,36 @@ plt.show()
 """================================"""
 
 # Bandpass filter for heart signal
-heart_pass = butter(8, [0.8, 2.0], btype='bandpass', fs=FS)
-heart_data = lfilter(heart_pass[0], heart_pass[1], phi_smooth)
+# heart_pass = butter(8, [0.8, 2.0], btype='bandpass', fs=FS)
+# heart_data = lfilter(heart_pass[0], heart_pass[1], phi_smooth)
+
+sosMatrix = np.array(
+    [[1, 0, -1, 1, -1.49069622543010, 0.821584856975103],
+     [1, 0, -1, 1, -1.85299358095713, 0.916570170374599],
+     [1, 0, -1, 1, -1.65884708697245, 0.751234896982056],
+     [1, 0, -1, 1, -1.46163518810405, 0.655484575195733]])
+
+ScaleValues = np.array([
+    0.175431355008461,
+    0.175431355008461,
+    0.161866596066365,
+    0.161866596066365,
+    1
+])
+
+# Apply the scale values to the sosMatrix
+# The last scale value is applied after filtering, so we exclude it here
+# 创建一个新的 SOS 矩阵来应用缩放值
+sos = np.copy(sosMatrix)
+# 只对分子系数 (b) 应用缩放值，分母系数 (a) 保持不变
+sos[:, :3] *= ScaleValues[0]  # 假设所有分子系数都应用同一个缩放值
+sos[:, 3] = 1  # 确保 a_0 是 1
+
+# 应用 SOS 滤波器到信号
+heart_data = sosfilt(sos, phi_smooth)
+
+# 应用最后一个缩放值到输出
+heart_data *= ScaleValues[-1]
 
 """================================"""
 # Heart rate signal processing
@@ -278,7 +306,7 @@ if heart_fre_max < 1e-2:
     heart_index = N1  # Set to an invalid index if no heartbeat is detected
 
 # Calculate the heart rate
-heart_count = (fs * (N1 / 2 - (heart_index - 1)) / N1) * 60  # Convert to beats per minute
+heart_count = (fs * (N1 / 2 - (heart_index)) / N1) * 60  # Convert to beats per minute
 
 # Print the heart rate
 print(f"Heart Rate: {heart_count} beats per minute")
