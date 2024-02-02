@@ -257,7 +257,10 @@ breath_index = np.argmax(breath_fre)
 breath_count = (fs * (N1 / 2 - (breath_index)) / N1) * 60
 
 print(f"Breath Rate: {breath_count} breaths per minute")
-easy_plot(fshift[:N1 // 2], breath_fre[:N1 // 2], 'Breath Signal FFT', 'Frequency (f/Hz)', 'Magnitude')
+easy_plot(fshift[:N1 // 2], breath_fre[:N1 // 2],
+          'Breath Signal FFT',
+          'Frequency (f/Hz)',
+          'Magnitude')
 ##
 """ 2.5.3 心率计算 """
 
@@ -290,25 +293,25 @@ heart_count = (fs * (N1 / 2 - (heart_index)) / N1) * 60
 
 print(f"Heart Rate: {heart_count} beats per minute")
 
-easy_plot(f[:200],heart[:200], 'Heart Rate Signal FFT', 'Frequency (f/Hz)', 'Magnitude')
-"""================================"""
+easy_plot(f[:200],heart[:200],
+          'Heart Rate Signal FFT',
+          'Frequency (f/Hz)',
+          'Magnitude')
+
 
 # Extract envelope for heart signal
 analytic_signal = hilbert(heart_data)
 env_envelope = np.abs(analytic_signal)
 
 # Plotting the results
-plt.figure()
-plt.plot(env_envelope)
-plt.xlabel('Time (s)')
-plt.ylabel('Amplitude')
-plt.title('Heartbeat Envelope')
+easy_plot(np.arange(N1), env_envelope,
+          'Heartbeat Envelope',
+          'Time (s)',
+          'Amplitude')
 
 # Normalizing heartbeat signal
 normalized_heartbeat = heart_data / env_envelope
-
-plt.figure()
-plt.plot(normalized_heartbeat)
-plt.xlabel('Time (s)')
-plt.ylabel('Normalized Amplitude')
-plt.title('Normalized Heartbeat Signal')
+easy_plot(np.arange(N1), normalized_heartbeat,
+          'Normalized Heartbeat Signal',
+          'Time (s)',
+          'Normalized Amplitude')
