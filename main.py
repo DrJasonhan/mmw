@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from scipy.fft import fft, fftshift
 from scipy.signal import butter, lfilter, hilbert, sosfilt
 import matplotlib.pyplot as plt
@@ -26,8 +27,8 @@ with open(filename, 'rb') as f:
 
 # Process data depending on ADC bits
 if numADCBits != 16:
-    l_max = 2**(numADCBits - 1) - 1
-    adcDataRow[adcDataRow > l_max] -= 2**numADCBits
+    l_max = 2 ** (numADCBits - 1) - 1
+    adcDataRow[adcDataRow > l_max] -= 2 ** numADCBits
 
 process_num = 1024
 fileSize = process_num * 2 * numADCSamples * numTX * numRX * 2
@@ -45,15 +46,15 @@ else:
     # For complex data
     numChirps = fileSize // (2 * numADCSamples * numRX)
     # Pre-allocate array for complex data
-    LVDS = np.zeros((1,fileSize // 2), dtype=complex)
+    LVDS = np.zeros((1, fileSize // 2), dtype=complex)
     # Combine real and imaginary parts into complex numbers
     counter = 0;
-    for i in range(0, fileSize-2, 4):
-        LVDS[0,counter] = adcData[i] + 1j * adcData[i + 2]
-        LVDS[0,counter+1] = adcData[i + 1] + 1j * adcData[i + 3]
-        counter +=2
+    for i in range(0, fileSize - 2, 4):
+        LVDS[0, counter] = adcData[i] + 1j * adcData[i + 2]
+        LVDS[0, counter + 1] = adcData[i + 1] + 1j * adcData[i + 3]
+        counter += 2
     # Reshape to a 2D array with each chirp as a column
-    LVDS = np.reshape(LVDS, (numChirps,numADCSamples * numRX))
+    LVDS = np.reshape(LVDS, (numChirps, numADCSamples * numRX))
     # Transpose to make each row correspond to one chirp
 
 # Reorganize data for each receiving antenna
@@ -63,7 +64,6 @@ for row in range(numRX):
         start_idx = i * numADCSamples
         end_idx = start_idx + numADCSamples
         adcData_reorganized[row, start_idx:end_idx] = LVDS[i, row * numADCSamples:(row + 1) * numADCSamples]
-
 
 retVal = np.reshape(adcData_reorganized[0, :], (numChirps, numADCSamples)).T
 process_adc = np.zeros((numADCSamples, numChirps // 2), dtype=np.complex_)
@@ -76,7 +76,7 @@ X, Y = np.meshgrid(np.arange(numADCSamples) * detaR, np.arange(numChirps // 2))
 
 # Plotting Range FFT, 20*log10() 意思是将幅度转换为分贝
 plt.figure()
-plt.plot(np.arange(numADCSamples) * detaR, 20 * np.log10(fft1d[0,:]))
+plt.plot(np.arange(numADCSamples) * detaR, 20 * np.log10(fft1d[0, :]))
 plt.xlabel('Range (m)')
 plt.ylabel('Magnitude (dB)')
 plt.title('Range Dimension FFT of a single chirp')
@@ -155,13 +155,36 @@ for j in range(RangFFT):
 # Extract phase from the range bin with the maximum energy
 angle_fft_last = angle_fft[:, max_num]
 
-# Phase difference
+phi = angle_fft_last  # (n_chirps,)
+angle_fft_last = np.unwrap(phi)
+
+# Phase difference 相位差分
 angle_fft_diff = np.diff(angle_fft_last)
 angle_fft_diff = np.insert(angle_fft_diff, 0, 0)  # Inserting a zero at the beginning to maintain array size
 
+
 # Moving average filtering
-window_size = 5  # Corresponding to 0.25s if the chirp rate is 20 Hz
-phi_smooth = np.convolve(angle_fft_diff, np.ones(window_size) / window_size, mode='same')
+def smoothdata(signal, window_size):
+    """
+    模仿matlab中的smoothdata函数。
+    :param signal:
+    :param window_size:
+    :return:
+    """
+    smoothed_signal = np.copy(signal)
+    length = len(signal)
+    # 对于数组的每一个元素，计算移动平均
+    for i in range(length):
+        # 确定窗口的起始和结束位置
+        start = max(i - window_size // 2, 0)
+        end = min(i + window_size // 2 + 1, length)
+        # 计算窗口中数据的平均值
+        smoothed_signal[i] = np.mean(signal[start:end])
+
+    return smoothed_signal
+
+
+phi_smooth = smoothdata(angle_fft_diff, 5)
 
 # FFT of the phase signal
 N1 = len(phi_smooth)
@@ -169,51 +192,42 @@ FS = 20
 fft_phase = np.abs(fft(phi_smooth))
 f = np.arange(N1) * (FS / N1)
 
-# Bandpass filter for breath signal
-breath_pass = butter(4, [0.1, 0.5], btype='bandpass', fs=FS)
-breath_data = lfilter(breath_pass[0], breath_pass[1], phi_smooth)
-"""
-# The sosMatrix and ScaleValues from MATLAB's breath_pass would be provided as follows:
-sosMatrix = np.array([
-    # You would insert the actual coefficients from MATLAB's breath_pass.sosMatrix here
-    # For example:
-    # [b01, b11, b21, a01, a11, a21],
-    # [b02, b12, b22, a02, a12, a22]
-])
+# # Bandpass filter for breath signal
+# breath_pass = butter(4, [0.1, 0.5], btype='bandpass', fs=FS)
+# breath_data = lfilter(breath_pass[0], breath_pass[1], phi_smooth)
 
-ScaleValues = np.array([
-    # You would insert the actual scale values from MATLAB's breath_pass.ScaleValues here
-    # For instance:
-    # 0.0601804080654874, 0.0601804080654874, 1
-])
+# The sosMatrix and ScaleValues from MATLAB's breath_pass would be provided as follows:
+sosMatrix = np.array(
+    [[1, 0, -1, 1, -1.96315431309333, 0.964395116007807],
+     [1, 0, -1, 1, -1.85009994293252, 0.868089891124299]])
+
+ScaleValues = np.array([0.0601804080654874, 0.0601804080654874, 1])
 
 # Apply the scale values to the sosMatrix
 # The last scale value is applied after filtering, so we exclude it here
-sos = sosMatrix * ScaleValues[:-1].reshape(-1, 1)
+# 创建一个新的 SOS 矩阵来应用缩放值
+sos = np.copy(sosMatrix)
+# 只对分子系数 (b) 应用缩放值，分母系数 (a) 保持不变
+sos[:, :3] *= ScaleValues[0]  # 假设所有分子系数都应用同一个缩放值
+sos[:, 3] = 1  # 确保 a_0 是 1
 
-# Now apply the SOS filter to your signal
+# 应用 SOS 滤波器到信号
 breath_data = sosfilt(sos, phi_smooth)
 
-# Apply the last scale value to the output
+# 应用最后一个缩放值到输出
 breath_data *= ScaleValues[-1]
-"""
-
-
-
-
-
 """================================"""
 # Spectral Estimation - FFT - Peak Interval
 N1 = len(breath_data)
 fs = 20  # Sampling rate of the breath/heartbeat signal
-fshift = np.arange(-N1/2, N1/2) * (fs / N1)  # Zero-centered frequency range for plotting
+fshift = np.arange(-N1 / 2, N1 / 2) * (fs / N1)  # Zero-centered frequency range for plotting
 
 # Perform FFT and shift it to center zero frequency
 breath_fre = np.abs(fftshift(fft(breath_data)))  # Double-sided spectrum (magnitude)
 
 # Plot the spectrum
 plt.figure()
-plt.plot(fshift[:N1//2], breath_fre[:N1//2])  # Plot only the positive frequencies
+plt.plot(fshift[:N1 // 2], breath_fre[:N1 // 2])  # Plot only the positive frequencies
 plt.xlabel('Frequency (f/Hz)')
 plt.ylabel('Magnitude')
 plt.title('Breath Signal FFT')
@@ -223,7 +237,7 @@ breath_fre_max = np.max(breath_fre)
 breath_index = np.argmax(breath_fre)
 
 # Calculate breath rate
-breath_count = (fs * (N1/2 - (breath_index - 1)) / N1) * 60
+breath_count = (fs * (N1 / 2 - (breath_index)) / N1) * 60
 
 # Print the breath rate
 print(f"Breath Rate: {breath_count} breaths per minute")
@@ -231,22 +245,17 @@ print(f"Breath Rate: {breath_count} breaths per minute")
 # Show the plot
 plt.show()
 
-
 """================================"""
-
-
-
 
 # Bandpass filter for heart signal
 heart_pass = butter(8, [0.8, 2.0], btype='bandpass', fs=FS)
 heart_data = lfilter(heart_pass[0], heart_pass[1], phi_smooth)
 
-
 """================================"""
 # Heart rate signal processing
 N1 = len(heart_data)
 fs = 20  # Sampling rate of the heart rate signal
-fshift = np.arange(-N1/2, N1/2) * (fs / N1)  # Zero-centered frequency range
+fshift = np.arange(-N1 / 2, N1 / 2) * (fs / N1)  # Zero-centered frequency range
 f = np.arange(0, N1) * (fs / N1)  # Frequency range for each point
 
 # Perform FFT and shift
@@ -261,22 +270,21 @@ plt.ylabel('Magnitude')
 plt.title('Heart Rate Signal FFT')
 
 # Search for the maximum in the first half of the spectrum
-heart_fre_max = np.max(heart_fre[:N1//2])
-heart_index = np.argmax(heart_fre[:N1//2])
+heart_fre_max = np.max(heart_fre[:N1 // 2])
+heart_index = np.argmax(heart_fre[:N1 // 2])
 
 # Determine if a heartbeat is present based on magnitude confidence
 if heart_fre_max < 1e-2:
     heart_index = N1  # Set to an invalid index if no heartbeat is detected
 
 # Calculate the heart rate
-heart_count = (fs * (N1/2 - (heart_index - 1)) / N1) * 60  # Convert to beats per minute
+heart_count = (fs * (N1 / 2 - (heart_index - 1)) / N1) * 60  # Convert to beats per minute
 
 # Print the heart rate
 print(f"Heart Rate: {heart_count} beats per minute")
 
 # Show the plot
 plt.show()
-
 
 """================================"""
 
@@ -299,4 +307,3 @@ plt.plot(normalized_heartbeat)
 plt.xlabel('Time (s)')
 plt.ylabel('Normalized Amplitude')
 plt.title('Normalized Heartbeat Signal')
-
