@@ -86,6 +86,9 @@ def read_adc_data(filename, radar, process_num):
     # 每帧中的两个chrip取第一个，200*1024
     process_adc = np.zeros((radar.numADCSamples, totleChirps // radar.chirpLoop), dtype=np.complex_)
     # 1T4R （1T1R）只处理单发单收的数据，并且只处理两个chrip取出的第一个
+    """
+    为什么要取每个帧中的单个chirp，而非直接取出所有chirp？
+    """
     for nchirp in range(0, totleChirps, radar.chirpLoop):
         process_adc[:, nchirp // radar.chirpLoop] = retVal[:, nchirp]
 
@@ -207,7 +210,7 @@ angle_fft_diff = np.diff(angle_fft_human)
 # 重要的事情：由于差分会减少一个元素，所以需要在头部插入一个0。
 angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
 
-phi = smoothdata(angle_fft_diff, 10)
+phi = smoothdata(angle_fft_diff, 15)
 
 ##
 """ 2.5 体征分析 """
