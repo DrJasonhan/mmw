@@ -1,6 +1,6 @@
 ##
 import numpy as np
-from scipy.fft import fft, fftshift
+from scipy.fft import fft
 from scipy.signal import hilbert, butter, filtfilt
 import matplotlib.pyplot as plt
 from biosppy.signals import resp
@@ -8,7 +8,7 @@ import seaborn as sns
 
 
 class Radar_params:
-    def __init__(self, numADCSamples, numADCBits, numTX, numRX, chirpLoop, Fs, slope, startFreq, numLanes, isReal=0):
+    def __init__(self, numADCSamples, numADCBits, numTX, numRX, chirpLoop, Fs, slope, startFreq, numLanes, mode):
         self.numADCSamples = numADCSamples  # ADC采样点数
         self.numADCBits = numADCBits  # ADC采样位数
         self.numTX = numTX  # 发射天线的个数
@@ -23,22 +23,20 @@ class Radar_params:
         self.deltaR = self.c / (2 * self.B_valid)  # 距离分辨率
         self.lambda_radar = self.c / startFreq  # 雷达信号波长
         self.numLanes = numLanes  # 通道数
-        self.isReal = isReal  # 1为实采样，0为复采样
+        self.mode = mode  # matlab_demo or wanglei
 
 
 class experiment_setup:
-    def __init__(self, det_range0, det_range1, duration, process_num):
+    def __init__(self, det_range0, det_range1, duration, process_num, filter_window):
         self.det_range0 = det_range0  # 感知范围 单位m
         self.det_range1 = det_range1  # 感知范围 单位m
         self.duration = duration  # 测量时间 s
         self.process_num = process_num  # 帧的数量
+        self.filter_window = filter_window  # 滤波窗口大小
 
 
 def read_adc_data(filename, radar, process_num):
-    """
-    :param process_num: 一个Rx所对应的帧的数量
-    :return:
-    """
+    """ process_num: 一个Rx所对应的帧的数量    """
     # Read Bin file
     with open(filename, 'rb') as f:
         adcDataRow = np.fromfile(f, dtype=np.int16)
@@ -54,43 +52,38 @@ def read_adc_data(filename, radar, process_num):
     PRTnum = fileSize // (radar.numADCSamples * radar.numRX)
     fileSize = PRTnum * radar.numADCSamples * radar.numRX
     adcData = adcDataRow[:fileSize]
-    # if radar.isReal:
-    #     totleChirps = fileSize // (radar.numADCSamples * radar.numRX)
-    #     # Reshape the real data into a 2D array with each chirp as a column
-    #     LVDS = np.reshape(adcData, (radar.numADCSamples * radar.numRX, totleChirps)).T
-    # else:
-    numLanes = radar.numLanes  # number of lanes
+    # 默认都是复数
     # 计算总chirp数，含有实部虚部，故除以2
     totleChirps = fileSize // (2 * radar.numADCSamples * radar.numRX * radar.numTX)
 
-    adcData = adcData.reshape((numLanes * 2, -1), order='F')
-    adcData = (adcData[np.arange(0, numLanes), :] +
-               1j * adcData[np.arange(numLanes, numLanes * 2), :])
 
-    # 重拍数据
-    adcData = adcData.flatten(order='F').reshape(totleChirps,
-                                                 radar.numADCSamples * radar.numRX)
+    # 对实部和虚部进行拼接
+    adcData = adcData.reshape((radar.numLanes * 2, -1), order='F')
+    adcData = (adcData[np.arange(0, radar.numLanes), :] +
+               1j * adcData[np.arange(radar.numLanes, radar.numLanes * 2), :])
 
-    adcData_reorganized = np.zeros((radar.numRX, totleChirps * radar.numADCSamples), dtype=adcData.dtype)
-
-    for row in range(radar.numRX):
-        for i in range(totleChirps):
-            start_idx = i * radar.numADCSamples
-            end_idx = start_idx + radar.numADCSamples
-            adcData_reorganized[row, start_idx:end_idx] = \
-                adcData[i, row * radar.numADCSamples:(row + 1) * radar.numADCSamples]
-
-    # 重组数据retVal：200*2048矩阵，每一列为一个chirp
-    # 取第一个接收天线Rx数据
-    retVal = np.reshape(adcData_reorganized[0, :], (totleChirps, radar.numADCSamples)).T
-    # 每帧中的两个chrip取第一个，200*1024
-    process_adc = np.zeros((radar.numADCSamples, totleChirps // radar.chirpLoop), dtype=np.complex_)
-    # 1T4R （1T1R）只处理单发单收的数据，并且只处理两个chrip取出的第一个
     """
-    为什么要取每个帧中的单个chirp，而非直接取出所有chirp？
+    重排数据，并取第一个接收天线Rx数据（单发单收）。注意：
+    matlab示例代码中，数据是按照Rx的顺序储存的，即前四分之一的数据全部是Rx0，然后是Rx1，Rx2，Rx3。
+    王雷的数据有可能排列方式为：Rx0，Rx1，Rx2，Rx3，Rx0，Rx1，Rx2，Rx3，...。
+    该问题需要确认！
+    
+    目前假定 mode == 0 是matlab示例数据的排列方式，mode == 1 是王雷数据排列方式。 
     """
-    for nchirp in range(0, totleChirps, radar.chirpLoop):
-        process_adc[:, nchirp // radar.chirpLoop] = retVal[:, nchirp]
+    Rx_id = 0  #
+    if radar.mode == "matlab_demo":
+        adcData = adcData.flatten(order='F').reshape((
+            totleChirps, radar.numADCSamples * radar.numRX))
+        sigle_rx = adcData[:, radar.numADCSamples * Rx_id:radar.numADCSamples * (Rx_id + 1)]
+    elif radar.mode == "wanglei":
+        sigle_rx = adcData[Rx_id, :].reshape((totleChirps, -1))
+
+    """
+    对于上面Rx的接收天线，只选取每一个frame中的第一个chirp。原因是：
+        1. 只取一个chirp的已满足了体征监测的频率需求；
+        2. frame之间有时间差，若使用所有chirp，chirp间的时间间隔是不均等的，导致后续会有误差。
+    """
+    process_adc = sigle_rx[np.arange(0, totleChirps, radar.chirpLoop), :].T
 
     return process_adc, totleChirps
 
@@ -112,17 +105,17 @@ def smoothdata(signal, window_size):
 
 ##
 """ 1. 预制参数 & 读取原始数据"""
-# the_radar = Radar_params(numADCSamples=200, numADCBits=16,
-#                          numTX=1, numRX=4, chirpLoop=2,
-#                          Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2)
-# the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
-#                              duration=51.2, process_num=1024)
-the_radar = Radar_params(numADCSamples=256, numADCBits=16,
-                         numTX=1, numRX=4, chirpLoop=4,
-                         Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4)
-the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
-                             duration=40, process_num=40 * 25)
-adc_data, totleChirps = read_adc_data('data/adc_data_test.bin',
+the_radar = Radar_params(numADCSamples=200, numADCBits=16,
+                         numTX=1, numRX=4, chirpLoop=2,
+                         Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2,mode="matlab_demo")
+the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
+                             duration=51.2, process_num=1024, filter_window=5)
+# the_radar = Radar_params(numADCSamples=256, numADCBits=16,
+#                          numTX=1, numRX=4, chirpLoop=4,
+#                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, mode="wanglei")
+# the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
+#                              duration=40, process_num=40 * 25, filter_window=10)
+adc_data, totleChirps = read_adc_data('data/adc_data21.bin',
                                       the_radar, the_setup.process_num)
 ##
 """ 2. 信号处理 """
@@ -138,7 +131,8 @@ sns.lineplot(x=np.arange(the_radar.numADCSamples) * the_radar.deltaR,
 
 def plot_2d_fft(fft_signal, radar_params):
     """ 画出所有 chirp 的距离维 1D FFT, 形成 2D 图。该图也可以画成3D效果"""
-    X, Y = np.meshgrid(np.arange(radar_params.numADCSamples) * radar_params.deltaR, np.arange(totleChirps // radar_params.chirpLoop))
+    X, Y = np.meshgrid(np.arange(radar_params.numADCSamples) * radar_params.deltaR,
+                       np.arange(totleChirps // radar_params.chirpLoop))
     plt.figure()
     plt.pcolormesh(X, Y, 20 * np.log10(fft_signal))
     plt.xlabel('Range (m)')
@@ -210,7 +204,7 @@ angle_fft_diff = np.diff(angle_fft_human)
 # 重要的事情：由于差分会减少一个元素，所以需要在头部插入一个0。
 angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
 
-phi = smoothdata(angle_fft_diff, 15)
+phi = smoothdata(angle_fft_diff, the_setup.filter_window)
 
 ##
 """ 2.5 体征分析 """
