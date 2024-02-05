@@ -4,7 +4,7 @@ Description:
 2. 适用的雷达型号包括： xWR16xx, IWR6843, xWR12xx, xWR14xx
 3. 数据采集板卡：DCA1000EVM
 4. 默认采集的信号都是复数形式
-5. 该代码的实现流程包括：数据读取、距离FFT、静态杂波消除、目标距离识别、相位提取、相位解缠绕、差分、平滑处理、体征分析。
+5. 该代码的实现流程包括：数据读取、目标距离识别、相位提取、相位解缠绕、相位差分、平滑处理、带通滤波、傅里叶变换。
 
 
 Author: Shuai HAN
@@ -122,11 +122,14 @@ def smoothdata(signal, window_size):
 
 ##
 """ 1. 预制参数 & 读取原始数据"""
+# Matlab demo 的配置
 the_radar = Radar_params(numADCSamples=200, numADCBits=16,
                          numTX=1, numRX=4, chirpLoop=2,
                          Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
 the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
                              duration=51.2, process_num=1024, filter_window=5)
+
+# 我们设备的配置
 # the_radar = Radar_params(numADCSamples=256, numADCBits=16,
 #                          numTX=1, numRX=4, chirpLoop=4,
 #                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
