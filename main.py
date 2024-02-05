@@ -3,7 +3,8 @@ Description:
 1. 该代码是基于TI mmWave雷达的体征监测的matlab示例代码的python实现。
 2. 适用的雷达型号包括： xWR16xx, IWR6843, xWR12xx, xWR14xx
 3. 数据采集板卡：DCA1000EVM
-4. 该代码的实现流程包括：数据读取、距离FFT、静态杂波消除、目标距离识别、相位提取、相位解缠绕、差分、平滑处理、体征分析。
+4. 默认采集的信号都是复数形式
+5. 该代码的实现流程包括：数据读取、距离FFT、静态杂波消除、目标距离识别、相位提取、相位解缠绕、差分、平滑处理、体征分析。
 
 
 Author: Shuai HAN
@@ -14,8 +15,8 @@ Date: 2024.2.5
 import numpy as np
 from scipy.fft import fft
 from scipy.signal import hilbert, butter, filtfilt
-import matplotlib.pyplot as plt
 from biosppy.signals import resp
+import matplotlib.pyplot as plt
 import seaborn as sns
 
 
