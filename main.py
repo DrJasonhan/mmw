@@ -1,3 +1,15 @@
+"""
+Description:
+1. 该代码是基于TI mmWave雷达的体征监测的matlab示例代码的python实现。
+2. 适用的雷达型号包括： xWR16xx, IWR6843, xWR12xx, xWR14xx
+3. 数据采集板卡：DCA1000EVM
+4. 该代码的实现流程包括：数据读取、距离FFT、静态杂波消除、目标距离识别、相位提取、相位解缠绕、差分、平滑处理、体征分析。
+
+
+Author: Shuai HAN
+Email: shuaihan@polyu.edu.hk
+Date: 2024.2.5
+"""
 ##
 import numpy as np
 from scipy.fft import fft
@@ -8,7 +20,12 @@ import seaborn as sns
 
 
 class Radar_params:
-    def __init__(self, numADCSamples, numADCBits, numTX, numRX, chirpLoop, Fs, slope, startFreq, numLanes, mode):
+    def __init__(self, numADCSamples, numADCBits, numTX, numRX, chirpLoop, Fs, slope, startFreq, numLanes, model):
+        """
+        :param model: 雷达的型号，
+            0: xWR16xx and IWR6843【matlab demo中的代码】；
+            1: xWR12xx and xWR14xx【我们的设备是1443】
+        """
         self.numADCSamples = numADCSamples  # ADC采样点数
         self.numADCBits = numADCBits  # ADC采样位数
         self.numTX = numTX  # 发射天线的个数
@@ -23,7 +40,8 @@ class Radar_params:
         self.deltaR = self.c / (2 * self.B_valid)  # 距离分辨率
         self.lambda_radar = self.c / startFreq  # 雷达信号波长
         self.numLanes = numLanes  # 通道数
-        self.mode = mode  # matlab_demo or wanglei
+        #
+        self.model = model
 
 
 class experiment_setup:
@@ -56,7 +74,6 @@ def read_adc_data(filename, radar, process_num):
     # 计算总chirp数，含有实部虚部，故除以2
     totleChirps = fileSize // (2 * radar.numADCSamples * radar.numRX * radar.numTX)
 
-
     # 对实部和虚部进行拼接
     adcData = adcData.reshape((radar.numLanes * 2, -1), order='F')
     adcData = (adcData[np.arange(0, radar.numLanes), :] +
@@ -66,16 +83,15 @@ def read_adc_data(filename, radar, process_num):
     重排数据，并取第一个接收天线Rx数据（单发单收）。注意：
     matlab示例代码中，数据是按照Rx的顺序储存的，即前四分之一的数据全部是Rx0，然后是Rx1，Rx2，Rx3。
     王雷的数据有可能排列方式为：Rx0，Rx1，Rx2，Rx3，Rx0，Rx1，Rx2，Rx3，...。
-    该问题需要确认！
     
     目前假定 mode == 0 是matlab示例数据的排列方式，mode == 1 是王雷数据排列方式。 
     """
     Rx_id = 0  #
-    if radar.mode == "matlab_demo":
+    if radar.model == 0:
         adcData = adcData.flatten(order='F').reshape((
             totleChirps, radar.numADCSamples * radar.numRX))
         sigle_rx = adcData[:, radar.numADCSamples * Rx_id:radar.numADCSamples * (Rx_id + 1)]
-    elif radar.mode == "wanglei":
+    elif radar.model == 1:
         sigle_rx = adcData[Rx_id, :].reshape((totleChirps, -1))
 
     """
@@ -107,12 +123,12 @@ def smoothdata(signal, window_size):
 """ 1. 预制参数 & 读取原始数据"""
 the_radar = Radar_params(numADCSamples=200, numADCBits=16,
                          numTX=1, numRX=4, chirpLoop=2,
-                         Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2,mode="matlab_demo")
+                         Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
 the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
                              duration=51.2, process_num=1024, filter_window=5)
 # the_radar = Radar_params(numADCSamples=256, numADCBits=16,
 #                          numTX=1, numRX=4, chirpLoop=4,
-#                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, mode="wanglei")
+#                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
 # the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
 #                              duration=40, process_num=40 * 25, filter_window=10)
 adc_data, totleChirps = read_adc_data('data/adc_data21.bin',
@@ -147,12 +163,11 @@ plot_2d_fft(fft1d, the_radar)
 ##
 """ 2.2 静态杂波消除 """
 
-# 注意，此处的RangFFT是256，而不是原始的200，是为了其输入点数为2的幂次方。不是2的幂次方的点数会使FFT算法使用更慢的路径，增加计算时间。
+# 注意，此处的RangFFT是256，而不是原始的200，是为了其输入点数为2的幂次方。
+# 不是2的幂次方的点数会使FFT算法使用更慢的路径，增加计算时间。
 RangFFT = 2 ** np.ceil(np.log2(the_radar.numADCSamples)).astype(int)
-numChirps = adc_data.shape[1]
 
-# 距离 FFT，但注意，由于RangeFFT是大于原始的200的，这里的fft()函数会自动补零。
-# 此外，注意转化成了1024 * 256的矩阵
+# 注意转置了
 fft_data = fft(adc_data, n=RangFFT, axis=0).T
 # 计算复数FFT结果的幅值（绝对值）
 fft_data_abs = np.abs(fft_data)
@@ -177,12 +192,12 @@ def plot_3d_fft(fft_signal, rangeFFT, deltaR, numChirps):
     plt.show()
 
 
-plot_3d_fft(fft_data_abs, RangFFT, deltaR, numChirps)
+plot_3d_fft(fft_data_abs, RangFFT, deltaR, adc_data.shape[1])
 
 ##
 """ 2.3 提取相位（相位反正切） & 目标距离识别 """
-# 找出能量最大的点，即人体的位置
 
+# 找出能量最大的点，即人体的位置
 slice0, slice1 = int(the_setup.det_range0 // deltaR), int(the_setup.det_range1 // deltaR + 1)
 # 沿着chirp轴求和 切片保留需要的距离bin
 power_sum = np.sum(fft_data_abs[:, slice0:slice1], axis=0)
@@ -196,10 +211,11 @@ angle_fft = np.angle(fft_data)  # return rad
 angle_fft_human = angle_fft[:, max_num]
 # 相位解缠绕，统一到 [-pi, pi]
 angle_fft_human = np.unwrap(angle_fft_human)
-
-# 相位差分，通过减去连续的相位值，对展开的相位执行相位差运算，
-# 目的是增强心跳信号并消除硬件接收机存在的相位漂移，抑制呼吸信号及其谐波
-# 相位漂移是一个缓慢变化的过程，会影响接收到的信号的相位，但不会显著改变频率或相位变化的模式。
+"""
+相位差分，通过减去连续的相位值，对展开的相位执行相位差运算，
+目的是增强心跳信号并消除硬件接收机存在的相位漂移，抑制呼吸信号及其谐波
+相位漂移是一个缓慢变化的过程，会影响接收到的信号的相位，但不会显著改变频率或相位变化的模式。
+"""
 angle_fft_diff = np.diff(angle_fft_human)
 # 重要的事情：由于差分会减少一个元素，所以需要在头部插入一个0。
 angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
