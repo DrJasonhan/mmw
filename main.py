@@ -73,7 +73,7 @@ def read_adc_data(filename, radar, process_num):
     adcData = adcDataRow[:fileSize]
     # 默认都是复数
     # 计算总chirp数，含有实部虚部，故除以2
-    totleChirps = fileSize // (2 * radar.numADCSamples * radar.numRX * radar.numTX)
+    totalChirps = fileSize // (2 * radar.numADCSamples * radar.numRX * radar.numTX)
 
     # 对实部和虚部进行拼接
     adcData = adcData.reshape((radar.numLanes * 2, -1), order='F')
@@ -90,19 +90,19 @@ def read_adc_data(filename, radar, process_num):
     Rx_id = 0  #
     if radar.model == 0:
         adcData = adcData.flatten(order='F').reshape((
-            totleChirps, radar.numADCSamples * radar.numRX))
+            totalChirps, radar.numADCSamples * radar.numRX))
         sigle_rx = adcData[:, radar.numADCSamples * Rx_id:radar.numADCSamples * (Rx_id + 1)]
     elif radar.model == 1:
-        sigle_rx = adcData[Rx_id, :].reshape((totleChirps, -1))
+        sigle_rx = adcData[Rx_id, :].reshape((totalChirps, -1))
 
     """
     对于上面Rx的接收天线，只选取每一个frame中的第一个chirp。原因是：
         1. 只取一个chirp的已满足了体征监测的频率需求；
         2. frame之间有时间差，若使用所有chirp，chirp间的时间间隔是不均等的，导致后续会有误差。
     """
-    process_adc = sigle_rx[np.arange(0, totleChirps, radar.chirpLoop), :].T
+    process_adc = sigle_rx[np.arange(0, totalChirps, radar.chirpLoop), :].T
 
-    return process_adc, totleChirps
+    return process_adc, totalChirps
 
 
 def smoothdata(signal, window_size):
@@ -128,15 +128,16 @@ the_radar = Radar_params(numADCSamples=200, numADCBits=16,
                          Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
 the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
                              duration=51.2, process_num=1024, filter_window=5)
+data_path = 'data/adc_data21.bin'
 
 # 我们设备的配置
 # the_radar = Radar_params(numADCSamples=256, numADCBits=16,
 #                          numTX=1, numRX=4, chirpLoop=4,
 #                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
 # the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
-#                              duration=40, process_num=40 * 25, filter_window=10)
-adc_data, totleChirps = read_adc_data('data/adc_data21.bin',
-                                      the_radar, the_setup.process_num)
+#                              duration=40, process_num=40 * 25, filter_window=6)
+# data_path = 'data/adc_data_test.bin'
+adc_data, totalChirps = read_adc_data(data_path, the_radar, the_setup.process_num)
 ##
 """ 2. 信号处理 """
 
@@ -152,7 +153,7 @@ sns.lineplot(x=np.arange(the_radar.numADCSamples) * the_radar.deltaR,
 def plot_2d_fft(fft_signal, radar_params):
     """ 画出所有 chirp 的距离维 1D FFT, 形成 2D 图。该图也可以画成3D效果"""
     X, Y = np.meshgrid(np.arange(radar_params.numADCSamples) * radar_params.deltaR,
-                       np.arange(totleChirps // radar_params.chirpLoop))
+                       np.arange(totalChirps // radar_params.chirpLoop))
     plt.figure()
     plt.pcolormesh(X, Y, 20 * np.log10(fft_signal))
     plt.xlabel('Range (m)')
@@ -224,12 +225,13 @@ angle_fft_diff = np.diff(angle_fft_human)
 # 重要的事情：由于差分会减少一个元素，所以需要在头部插入一个0。
 angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
 
-phi = smoothdata(angle_fft_diff, the_setup.filter_window)
-
 ##
 """ 2.5 体征分析 """
 
 """ 2.5.1 准备工作"""
+# 默认选取 0.25 s 的滑动窗口，窗口长度为5
+phi = smoothdata(angle_fft_diff, the_setup.filter_window)
+
 N = len(phi)
 fs = the_setup.process_num / the_setup.duration  # 采样频率
 f = np.arange(N) * (fs / N)  # FFT 后的频率轴

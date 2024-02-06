@@ -121,7 +121,7 @@ def easy_plot(x,y, title, xlabel, ylabel):
 radar_para = Radar_params(numADCSamples=200, numADCBits=16,
                           numTX=1, numRX=4, chirpLoop=2,
                           Fs=4e6, slope=64.985e12, startFreq=60.25e9)
-adc_data, totleChirps = read_adc_data('data/adc_data22.bin',
+adc_data, totleChirps = read_adc_data('data/adc_data21.bin',
                                       radar_para, 1024)
 ##
 """ 2. 信号处理 """
