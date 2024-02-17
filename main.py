@@ -120,6 +120,32 @@ def smoothdata(signal, window_size):
     return smoothed_signal
 
 
+def plot_2d_fft(fft_signal, radar_params):
+    """ 画出所有 chirp 的距离维 1D FFT, 形成 2D 图。该图也可以画成3D效果"""
+    X, Y = np.meshgrid(np.arange(radar_params.numADCSamples) * radar_params.deltaR,
+                       np.arange(totalChirps // radar_params.chirpLoop))
+    plt.figure()
+    plt.pcolormesh(X, Y, 20 * np.log10(fft_signal))
+    plt.xlabel('Range (m)')
+    plt.ylabel('Chirp number')
+    plt.title('Range Dimension - 1D FFT Result')
+    plt.colorbar()
+    plt.show()
+
+
+def plot_3d_fft(fft_signal, rangeFFT, deltaR, numChirps):
+    """ 画出消除静态杂波后，所有 chirp 的距离维 1D FFT, 形成 3D 图。"""
+    M, N = np.meshgrid(np.arange(rangeFFT) * deltaR, np.arange(1, numChirps + 1))
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot_surface(M, N, fft_signal, cmap='viridis')
+    ax.set_xlabel('Distance (m)')
+    ax.set_ylabel('Chirp pulse number')
+    ax.set_zlabel('Magnitude')
+    ax.set_title('After Static Clutter Removal: Range-Dimension 1D FFT Result')
+    plt.show()
+
+
 ##
 """ 1. 预制参数 & 读取原始数据"""
 # Matlab demo 的配置
@@ -149,30 +175,16 @@ sns.lineplot(x=np.arange(the_radar.numADCSamples) * the_radar.deltaR,
     title='MRange Dimension FFT of a single chirp',
     xlabel='Range (m)', ylabel='Magnitude (dB)')
 
-
-def plot_2d_fft(fft_signal, radar_params):
-    """ 画出所有 chirp 的距离维 1D FFT, 形成 2D 图。该图也可以画成3D效果"""
-    X, Y = np.meshgrid(np.arange(radar_params.numADCSamples) * radar_params.deltaR,
-                       np.arange(totalChirps // radar_params.chirpLoop))
-    plt.figure()
-    plt.pcolormesh(X, Y, 20 * np.log10(fft_signal))
-    plt.xlabel('Range (m)')
-    plt.ylabel('Chirp number')
-    plt.title('Range Dimension - 1D FFT Result')
-    plt.colorbar()
-    plt.show()
-
-
 plot_2d_fft(fft1d, the_radar)
 
 ##
 """ 2.2 静态杂波消除 """
 
-# 注意，此处的RangFFT是256，而不是原始的200，是为了其输入点数为2的幂次方。
+# 注意，此处的RangFFT不一定与numADCSamples一致，而是调整为≥numADCSamples的、最小的2的幂次方。
 # 不是2的幂次方的点数会使FFT算法使用更慢的路径，增加计算时间。
 RangFFT = 2 ** np.ceil(np.log2(the_radar.numADCSamples)).astype(int)
 
-# 注意转置了
+# 注意，转置了
 fft_data = fft(adc_data, n=RangFFT, axis=0).T
 # 计算复数FFT结果的幅值（绝对值）
 fft_data_abs = np.abs(fft_data)
@@ -182,20 +194,6 @@ deltaR = the_radar.Fs * the_radar.c / (2 * the_radar.slope * RangFFT)
 # 置零，去除直流分量，前10个已经基本可以帮助去除低频分量了
 # 这里可以根据实际情况调整，例如，可以消除后面的背景波
 fft_data_abs[:, :10] = 0
-
-
-def plot_3d_fft(fft_signal, rangeFFT, deltaR, numChirps):
-    """ 画出消除静态杂波后，所有 chirp 的距离维 1D FFT, 形成 3D 图。"""
-    M, N = np.meshgrid(np.arange(rangeFFT) * deltaR, np.arange(1, numChirps + 1))
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.plot_surface(M, N, fft_signal, cmap='viridis')
-    ax.set_xlabel('Distance (m)')
-    ax.set_ylabel('Chirp pulse number')
-    ax.set_zlabel('Magnitude')
-    ax.set_title('After Static Clutter Removal: Range-Dimension 1D FFT Result')
-    plt.show()
-
 
 plot_3d_fft(fft_data_abs, RangFFT, deltaR, adc_data.shape[1])
 
@@ -252,13 +250,13 @@ heart_data = filtfilt(b, a, phi)
 # 傅里叶变换，因为计算出来是双边谱，所以只取一半
 heart = np.abs(fft(heart_data))[:N // 2]
 
-# 选取最大的频率，即心率
+# 选取幅值最大的频率，即心率
 heart_fre_max = np.max(heart)
 heart_index = np.argmax(heart)
 
 # 根据振幅判断是否有心跳
 if heart_fre_max < 1e-2:
-    print("No heartbeat is detected")
+    print("没有检测到心跳信号")
 
 # 频率-->心率
 heart_count = f[heart_index] * 60
@@ -285,8 +283,7 @@ sns.lineplot(x=np.arange(N), y=env_envelope)
 # 心跳信号归一化
 normalized_heartbeat = heart_data / env_envelope
 plt.figure()
-sns.lineplot(x=np.arange(N),
-             y=normalized_heartbeat).set(
+sns.lineplot(x=np.arange(N), y=normalized_heartbeat).set(
     title='Normalized Heartbeat Signal',
     xlabel='Time (s)',
     ylabel='Normalized Amplitude')
