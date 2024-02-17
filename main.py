@@ -1,5 +1,5 @@
 """
-Description:
+代码内容:
 1. 该代码是基于TI mmWave雷达的体征监测的matlab示例代码的python实现。
 2. 适用的雷达型号包括： xWR16xx, IWR6843, xWR12xx, xWR14xx
 3. 数据采集板卡：DCA1000EVM
@@ -192,7 +192,7 @@ fft_data_abs = np.abs(fft_data)
 # 注意：不是雷达实际的距离分辨率，是最后成图时，range轴的间距为deltaR。
 deltaR = the_radar.Fs * the_radar.c / (2 * the_radar.slope * RangFFT)
 # 置零，去除直流分量，前10个已经基本可以帮助去除低频分量了
-# 这里可以根据实际情况调整，例如，可以消除后面的背景波
+# 这里可以根据实际情况调整，例如，可以消除身后墙壁反射的背景波
 fft_data_abs[:, :10] = 0
 
 plot_3d_fft(fft_data_abs, RangFFT, deltaR, adc_data.shape[1])
