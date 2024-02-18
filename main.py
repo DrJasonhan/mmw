@@ -83,9 +83,9 @@ def read_adc_data(filename, radar, process_num):
     """
     重排数据，并取第一个接收天线Rx数据（单发单收）。注意：
     matlab示例代码中，数据是按照Rx的顺序储存的，即前四分之一的数据全部是Rx0，然后是Rx1，Rx2，Rx3。
-    王雷的数据有可能排列方式为：Rx0，Rx1，Rx2，Rx3，Rx0，Rx1，Rx2，Rx3，...。
+    我们雷达的数据排列方式为：Rx0，Rx1，Rx2，Rx3，Rx0，Rx1，Rx2，Rx3，...。
     
-    目前假定 mode == 0 是matlab示例数据的排列方式，mode == 1 是王雷数据排列方式。 
+    规定 mode == 0 是matlab示例数据的排列方式，mode == 1 是我们雷达的数据排列方式。 
     """
     Rx_id = 0  #
     if radar.model == 0:
