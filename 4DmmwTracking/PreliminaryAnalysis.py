@@ -9,15 +9,15 @@ import os, time
 
 def label_to_rgb(label):
     colors = {
-        0: (255, 0, 0),  # Red
-        1: (255, 165, 0),  # Orange
-        2: (255, 255, 0),  # Yellow
-        3: (0, 128, 0),  # Green
-        4: (0, 255, 255),  # Cyan
-        5: (0, 0, 255),  # Blue
-        6: (128, 0, 128),  # Purple
+        0: [255, 0, 0],  # Red
+        1: [255, 165, 0],  # Orange
+        2: [255, 255, 0],  # Yellow
+        3: [0, 128, 0],  # Green
+        4: [0, 255, 255],  # Cyan
+        5: [0, 0, 255],  # Blue
+        6: [128, 0, 128],  # Purple
     }
-    return colors.get(label, (255, 255, 255))  # Default to white if label is not recognized
+    return np.array(colors.get(label, (255, 255, 255)))/255
 
 
 def read_pcd(file):
@@ -27,7 +27,6 @@ def read_pcd(file):
     points = data.iloc[:, 0:3].values
     labels = data.iloc[:, 4].values
     rgb = np.array([label_to_rgb(label) for label in labels])
-    rgb = rgb / 255.0
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
@@ -35,15 +34,15 @@ def read_pcd(file):
 
     return pcd
 
-
+## 读取数据
 folder_path = 'Data/tennis'
 file_list = sorted([os.path.join(folder_path, file)
                     for file in os.listdir(folder_path)
                     if file.endswith('.pcd')])
-
+##
+# 创建窗口，并设置视角
 vis = o3d.visualization.Visualizer()
 vis.create_window()
-
 view_control = vis.get_view_control()
 view_control.set_lookat([0, 0, 0])  # 设置视点位置
 view_control.set_up([0, -1, 0])  # 设置上方向
@@ -58,6 +57,9 @@ for file in file_list:
 
     vis.poll_events()
     vis.update_renderer()
-    time.sleep(0.1)  # 暂停0.1秒
+    time.sleep(0.05)  # 暂停0.1秒
 
-vis.destroy_window()
+# 添加一个无限循环，让视图保持打开状态，直到用户关闭窗口
+while True:
+    vis.poll_events()
+    vis.update_renderer()
