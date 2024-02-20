@@ -3,17 +3,18 @@
 """
 import pandas as pd
 import open3d as o3d
-from open3d import io, geometry, visualization, utility
 import numpy as np
 import os, time
 
 is_paused = False
 
 
-# Define a function to handle key events
 def on_key(vis, action, mods):
+    """
+    暂停/继续展示
+    action：检查按键是被按下还是被释放，1按下，0释放；否则，会触发两次
+    """
     global is_paused
-    # 在这里，`action`参数应该用来检查按键是被按下还是被释放，而不是使用`key`参数
     if action == 1:
         is_paused = not is_paused
         if is_paused:
@@ -22,6 +23,13 @@ def on_key(vis, action, mods):
             vis.get_render_option().background_color = [1, 1, 1]
     return True
 
+def show_pcd(pcd):
+    vis.create_window()
+    vis.add_geometry(pcd)
+    vis.poll_events()
+    vis.update_renderer()
+    vis.run()
+    vis.destroy_window()
 
 def label_to_rgb(label):
     colors = {
@@ -58,32 +66,32 @@ file_list = sorted([os.path.join(folder_path, file)
                     if file.endswith('.pcd')])
 ##
 
-
 # 创建窗口，并设置视角
 vis = o3d.visualization.VisualizerWithKeyCallback()
 vis.create_window()
-vis.register_key_action_callback(32, on_key)  # 32 is the ASCII code for space
-
+vis.register_key_action_callback(32, on_key)  # 32 空格的 ASCII码
 view_control = vis.get_view_control()
-view_control.set_lookat([0, 0, 0])  # 设置视点位置
-view_control.set_up([0, -1, 0])  # 设置上方向
-view_control.set_front([0, 0, -1])  # 设置前方向
+# view_control.set_lookat([0, 0, 0])  # 设置视点位置
+# view_control.set_up([0, -1, 0])  # 设置上方向
+# view_control.set_front([0, 0, -1])  # 设置前方向
 
+pcd_accumulated = o3d.geometry.PointCloud()
 for file in file_list:
     if not is_paused:
         pcd = read_pcd(file)
-
+        pcd_accumulated += pcd
         vis.clear_geometries()
         vis.add_geometry(pcd)
-
         vis.poll_events()
         vis.update_renderer()
+
         time.sleep(0.05)  # 暂停0.05秒
 
     while is_paused:
         vis.poll_events()
         vis.update_renderer()
 
-
-vis.run()  # Use Open3D's main loop instead of an infinite loop
+vis.run()
 vis.destroy_window()
+
+# show_pcd(pcd_accumulated)

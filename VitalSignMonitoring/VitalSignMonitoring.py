@@ -16,6 +16,7 @@ import numpy as np
 from scipy.fft import fft
 from scipy.signal import hilbert, butter, filtfilt
 from biosppy.signals import resp
+from scipy.signal import buttord
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -228,8 +229,8 @@ angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
 
 """ 2.5.1 准备工作"""
 # 默认选取 0.25 s 的滑动窗口，窗口长度为5
-phi = smoothdata(angle_fft_diff, the_setup.filter_window)
-
+# phi = smoothdata(angle_fft_diff, the_setup.filter_window)
+phi = angle_fft_diff
 N = len(phi)
 fs = the_setup.process_num / the_setup.duration  # 采样频率
 f = np.arange(N) * (fs / N)  # FFT 后的频率轴
@@ -244,7 +245,7 @@ print(f"Breath Rate: {breath_count: .2f} breaths per minute")
 ##
 """ 2.5.3 心率计算 """
 # 滤波
-b, a = butter(2, [0.67, 2.5], btype='bandpass', fs=fs)
+b, a = butter(42, [0.67, 2.5], btype='bandpass', fs=fs)
 heart_data = filtfilt(b, a, phi)
 
 # 傅里叶变换，因为计算出来是双边谱，所以只取一半
@@ -287,3 +288,22 @@ sns.lineplot(x=np.arange(N), y=normalized_heartbeat).set(
     title='Normalized Heartbeat Signal',
     xlabel='Time (s)',
     ylabel='Normalized Amplitude')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
