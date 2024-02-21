@@ -5,6 +5,8 @@ import pandas as pd
 import open3d as o3d
 import numpy as np
 import os, time
+import matplotlib.pyplot as plt
+
 
 is_paused = False
 
@@ -17,11 +19,12 @@ def on_key(vis, action, mods):
     global is_paused
     if action == 1:
         is_paused = not is_paused
-        if is_paused:
-            vis.get_render_option().background_color = [0, 0, 0]
-        else:
-            vis.get_render_option().background_color = [1, 1, 1]
+        # if is_paused:
+        #     vis.get_render_option().background_color = [0, 0, 0]
+        # else:
+        #     vis.get_render_option().background_color = [1, 1, 1]
     return True
+
 
 def show_pcd(pcd):
     vis.create_window()
@@ -30,6 +33,7 @@ def show_pcd(pcd):
     vis.update_renderer()
     vis.run()
     vis.destroy_window()
+
 
 def label_to_rgb(label):
     colors = {
@@ -54,7 +58,7 @@ def read_pcd(file):
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.colors = o3d.utility.Vector3dVector(rgb)
+    # pcd.colors = o3d.utility.Vector3dVector(rgb)
 
     return pcd
 
@@ -71,21 +75,28 @@ vis = o3d.visualization.VisualizerWithKeyCallback()
 vis.create_window()
 vis.register_key_action_callback(32, on_key)  # 32 空格的 ASCII码
 view_control = vis.get_view_control()
-# view_control.set_lookat([0, 0, 0])  # 设置视点位置
-# view_control.set_up([0, -1, 0])  # 设置上方向
-# view_control.set_front([0, 0, -1])  # 设置前方向
 
 pcd_accumulated = o3d.geometry.PointCloud()
 for file in file_list:
     if not is_paused:
         pcd = read_pcd(file)
         pcd_accumulated += pcd
+
+        # 聚类，并设置颜色
+        with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
+            labels = np.array(pcd.cluster_dbscan(eps=0.3, min_points=25, print_progress=True))
+        max_label = max(labels)  # 最大的类别值
+        colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+        colors[labels < 0] = 1  # 类别为0的，颜色设置为黑色
+        pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])  # ndarray to vector3d
+
+
         vis.clear_geometries()
         vis.add_geometry(pcd)
         vis.poll_events()
         vis.update_renderer()
 
-        time.sleep(0.05)  # 暂停0.05秒
+        # time.sleep(0.05)  # 暂停0.05秒
 
     while is_paused:
         vis.poll_events()
