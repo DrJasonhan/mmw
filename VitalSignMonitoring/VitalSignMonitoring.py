@@ -14,9 +14,8 @@ Date: 2024.2.5
 ##
 import numpy as np
 from scipy.fft import fft
-from scipy.signal import hilbert, butter, filtfilt
-from biosppy.signals import resp
-from scipy.signal import buttord
+from scipy.signal import hilbert, butter, buttord, sosfiltfilt
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -47,12 +46,11 @@ class Radar_params:
 
 
 class experiment_setup:
-    def __init__(self, det_range0, det_range1, duration, process_num, filter_window):
+    def __init__(self, det_range0, det_range1, duration, process_num):
         self.det_range0 = det_range0  # 感知范围 单位m
         self.det_range1 = det_range1  # 感知范围 单位m
         self.duration = duration  # 测量时间 s
-        self.process_num = process_num  # 帧的数量
-        self.filter_window = filter_window  # 滤波窗口大小
+        self.process_num = process_num  # 帧的数量，即采样频率和测量时间的乘积
 
 
 def read_adc_data(filename, radar, process_num):
@@ -106,19 +104,14 @@ def read_adc_data(filename, radar, process_num):
     return process_adc, totalChirps
 
 
-def smoothdata(signal, window_size):
-    """模仿matlab中的smoothdata函数。 """
-    smoothed_signal = np.copy(signal)
-    length = len(signal)
-    # 对于数组的每一个元素，计算移动平均
-    for i in range(length):
-        # 确定窗口的起始和结束位置
-        start = max(i - window_size // 2, 0)
-        end = min(i + window_size // 2 + 1, length)
-        # 计算窗口中数据的平均值
-        smoothed_signal[i] = np.mean(signal[start:end])
+def IIR_filter(signal, wp, ws, gpass, gstop, fs):
+    """IIR滤波器设计"""
+    # 计算滤波器的最小阶数和截止频率
+    N, Wn = buttord(wp, ws, gpass, gstop, fs=fs)
+    sos = butter(N, Wn, 'bandpass', fs=fs, output='sos')
+    filtered_signal = sosfiltfilt(sos, signal)
 
-    return smoothed_signal
+    return filtered_signal
 
 
 def plot_2d_fft(fft_signal, radar_params):
@@ -147,6 +140,26 @@ def plot_3d_fft(fft_signal, rangeFFT, deltaR, numChirps):
     plt.show()
 
 
+def plot_nomalized_signal(signal, title):
+    analytic_signal = hilbert(signal)
+    env_envelope = np.abs(analytic_signal)
+    # plt.figure()
+    # sns.lineplot(x=np.arange(N), y=signal).set(
+    #     title='Signal',
+    #     xlabel='Time (s)',
+    #     ylabel='Amplitude')
+    # sns.lineplot(x=np.arange(N), y=env_envelope)
+
+    # 心跳信号归一化
+    normalized_signal = signal / env_envelope
+    plt.figure()
+    sns.lineplot(x=np.arange(len(normalized_signal)),
+                 y=normalized_signal).set(
+        title=title,
+        xlabel='Time (s)',
+        ylabel='Normalized Amplitude')
+
+
 ##
 """ 1. 预制参数 & 读取原始数据"""
 # Matlab demo 的配置
@@ -154,7 +167,7 @@ the_radar = Radar_params(numADCSamples=200, numADCBits=16,
                          numTX=1, numRX=4, chirpLoop=2,
                          Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
 the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
-                             duration=51.2, process_num=1024, filter_window=5)
+                             duration=51.2, process_num=1024)
 data_path = 'data/adc_data21.bin'
 
 # 我们设备的配置
@@ -162,7 +175,7 @@ data_path = 'data/adc_data21.bin'
 #                          numTX=1, numRX=4, chirpLoop=4,
 #                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
 # the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
-#                              duration=40, process_num=40 * 25, filter_window=6)
+#                              duration=40, process_num=40 * 25)
 # data_path = 'data/adc_data_test.bin'
 adc_data, totalChirps = read_adc_data(data_path, the_radar, the_setup.process_num)
 ##
@@ -228,26 +241,33 @@ angle_fft_diff = np.insert(angle_fft_diff, 0, 0)
 """ 2.5 体征分析 """
 
 """ 2.5.1 准备工作"""
-# 默认选取 0.25 s 的滑动窗口，窗口长度为5
-# phi = smoothdata(angle_fft_diff, the_setup.filter_window)
 phi = angle_fft_diff
 N = len(phi)
-fs = the_setup.process_num / the_setup.duration  # 采样频率
+fs = int(the_setup.process_num / the_setup.duration)  # 采样频率
 f = np.arange(N) * (fs / N)  # FFT 后的频率轴
 
 ##
 """ 2.5.2 呼吸率计算 """
-# resp()函数默认滤波范围是0.1-0.35hz，FIR
-bd = resp.resp(signal=phi, sampling_rate=fs, show=True)
-breath_count = np.mean(bd[4]) * 60
+breath_data = IIR_filter(phi, [0.1, 0.5], [0.05, 0.55], 1, 30, fs)
+breath = np.abs(fft(breath_data))[:N // 2]
+# 选取幅值最大的频率，即呼吸频率
+breath_fre_max = np.max(breath)
+breath_index = np.argmax(breath)
+# 频率-->呼吸频率
+breath_count = f[breath_index] * 60
 print(f"Breath Rate: {breath_count: .2f} breaths per minute")
 
+# 画图：
+plt.figure()
+sns.lineplot(x=f[:N // 2], y=breath).set(
+    title='Breath Rate Signal FFT',
+    xlabel='Frequency (f/Hz)',
+    ylabel='Magnitude')
+plot_nomalized_signal(breath_data, 'Breath Signal')
 ##
 """ 2.5.3 心率计算 """
 # 滤波
-b, a = butter(42, [0.67, 2.5], btype='bandpass', fs=fs)
-heart_data = filtfilt(b, a, phi)
-
+heart_data = IIR_filter(phi, [0.8, 2.0], [0.7, 2.1], 1, 30, fs)
 # 傅里叶变换，因为计算出来是双边谱，所以只取一半
 heart = np.abs(fft(heart_data))[:N // 2]
 
@@ -271,39 +291,4 @@ sns.lineplot(x=f[:N // 2], y=heart).set(
     xlabel='Frequency (f/Hz)',
     ylabel='Magnitude')
 
-# Extract envelope for heart signal
-analytic_signal = hilbert(heart_data)
-env_envelope = np.abs(analytic_signal)
-plt.figure()
-sns.lineplot(x=np.arange(N), y=heart_data).set(
-    title='Heartbeat Signal',
-    xlabel='Time (s)',
-    ylabel='Amplitude')
-sns.lineplot(x=np.arange(N), y=env_envelope)
-
-# 心跳信号归一化
-normalized_heartbeat = heart_data / env_envelope
-plt.figure()
-sns.lineplot(x=np.arange(N), y=normalized_heartbeat).set(
-    title='Normalized Heartbeat Signal',
-    xlabel='Time (s)',
-    ylabel='Normalized Amplitude')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+plot_nomalized_signal(heart_data, 'Heartbeat Signal')

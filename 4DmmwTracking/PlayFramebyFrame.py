@@ -7,22 +7,15 @@ import numpy as np
 import os, time
 import matplotlib.pyplot as plt
 
-
 is_paused = False
 
 
 def on_key(vis, action, mods):
-    """
-    暂停/继续展示
-    action：检查按键是被按下还是被释放，1按下，0释放；否则，会触发两次
-    """
+    """ 暂停/继续展示
+    action：检查按键是被按下还是被释放，1按下，0释放；否则，会触发两次    """
     global is_paused
     if action == 1:
         is_paused = not is_paused
-        # if is_paused:
-        #     vis.get_render_option().background_color = [0, 0, 0]
-        # else:
-        #     vis.get_render_option().background_color = [1, 1, 1]
     return True
 
 
@@ -54,10 +47,13 @@ def read_pcd(file):
 
     points = data.iloc[:, 0:3].values
     labels = data.iloc[:, 4].values
-    rgb = np.array([label_to_rgb(label) for label in labels])
+
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
+
+    # # 根据人工标注的标签，设置颜色
+    # rgb = np.array([label_to_rgb(label) for label in labels])
     # pcd.colors = o3d.utility.Vector3dVector(rgb)
 
     return pcd
@@ -74,7 +70,11 @@ file_list = sorted([os.path.join(folder_path, file)
 vis = o3d.visualization.VisualizerWithKeyCallback()
 vis.create_window()
 vis.register_key_action_callback(32, on_key)  # 32 空格的 ASCII码
+point_cloud = read_pcd(file_list[0])
+vis.add_geometry(point_cloud)
 view_control = vis.get_view_control()
+# ctr = vis.get_view_control()
+# ctr.change_field_of_view(step=70)
 
 pcd_accumulated = o3d.geometry.PointCloud()
 for file in file_list:
@@ -88,15 +88,15 @@ for file in file_list:
         max_label = max(labels)  # 最大的类别值
         colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
         colors[labels < 0] = 1  # 类别为0的，颜色设置为黑色
-        pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])  # ndarray to vector3d
+        # 更新要显示的点云对象
+        point_cloud.points = pcd.points
+        point_cloud.colors = o3d.utility.Vector3dVector(colors[:, :3])  # ndarray to vector3d
 
-
-        vis.clear_geometries()
-        vis.add_geometry(pcd)
+        vis.update_geometry(point_cloud)
         vis.poll_events()
         vis.update_renderer()
 
-        # time.sleep(0.05)  # 暂停0.05秒
+        time.sleep(0.05)  # 暂停0.05秒
 
     while is_paused:
         vis.poll_events()
