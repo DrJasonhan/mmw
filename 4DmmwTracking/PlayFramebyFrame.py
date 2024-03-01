@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 is_paused = False
 
 
+#
+
 def on_key(vis, action, mods):
     """ 暂停/继续展示
     action：检查按键是被按下还是被释放，1按下，0释放；否则，会触发两次    """
@@ -41,13 +43,43 @@ def label_to_rgb(label):
     return np.array(colors.get(label, (255, 255, 255))) / 255
 
 
+# 创建一个网格平面的函数，作为地面
+def create_ground_plane(size=10, divisions=10, color=[0.5, 0.5, 0.5], height=-1):
+    # 生成网格线的点
+    x_offset = size / 2
+    y_offset = size / 2
+    lines = []
+    for i in range(divisions + 1):
+        lines.append([i - x_offset, 0 - y_offset, height])
+        lines.append([i - x_offset, size - y_offset, height])
+        lines.append([0 - x_offset, i - y_offset, height])
+        lines.append([size - x_offset, i - y_offset, height])
+
+    # 创建LineSet对象，用于绘制线条
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(lines),
+        lines=o3d.utility.Vector2iVector([[i, i + 1] for i in range(0, len(lines), 2)])
+    )
+
+    # 设置线条颜色
+    colors = [color for i in range(len(line_set.lines))]
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+
+    return line_set
+
+
+def create_axis(size=1.0):
+    # 创建三个箭头分别代表X、Y、Z轴，分别对应 红绿蓝
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=size)
+    return mesh_frame
+
+
 def read_pcd(file):
     """读取pcd文件, 并返回o3d.geometry.PointCloud对象"""
     data = pd.read_csv(file, skiprows=11, sep=' ', header=None)
 
     points = data.iloc[:, 0:3].values
     labels = data.iloc[:, 4].values
-
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
@@ -73,8 +105,13 @@ vis.register_key_action_callback(32, on_key)  # 32 空格的 ASCII码
 point_cloud = read_pcd(file_list[0])
 vis.add_geometry(point_cloud)
 view_control = vis.get_view_control()
-# ctr = vis.get_view_control()
-# ctr.change_field_of_view(step=70)
+# 创建地平面网格
+ground_plane = create_ground_plane(size=30, divisions=30)
+vis.add_geometry(ground_plane)
+
+# 创建坐标轴箭头
+axis = create_axis(size=0.5)
+vis.add_geometry(axis)
 
 pcd_accumulated = o3d.geometry.PointCloud()
 for file in file_list:
@@ -96,7 +133,7 @@ for file in file_list:
         vis.poll_events()
         vis.update_renderer()
 
-        time.sleep(0.05)  # 暂停0.05秒
+        # time.sleep(0.05)  # 暂停0.05秒
 
     while is_paused:
         vis.poll_events()

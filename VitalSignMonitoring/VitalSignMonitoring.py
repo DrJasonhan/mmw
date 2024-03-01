@@ -19,6 +19,9 @@ from scipy.signal import hilbert, butter, buttord, sosfiltfilt
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+import warnings
+warnings.filterwarnings('ignore')
+
 
 class Radar_params:
     def __init__(self, numADCSamples, numADCBits, numTX, numRX, chirpLoop, Fs, slope, startFreq, numLanes, model):
@@ -163,21 +166,34 @@ def plot_nomalized_signal(signal, title):
 ##
 """ 1. 预制参数 & 读取原始数据"""
 # Matlab demo 的配置
-the_radar = Radar_params(numADCSamples=200, numADCBits=16,
-                         numTX=1, numRX=4, chirpLoop=2,
-                         Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
-the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
-                             duration=51.2, process_num=1024)
-data_path = 'data/adc_data21.bin'
+# the_radar = Radar_params(numADCSamples=200, numADCBits=16,
+#                          numTX=1, numRX=4, chirpLoop=2,
+#                          Fs=4e6, slope=64.985e12, startFreq=60.25e9, numLanes=2, model=0)
+# the_setup = experiment_setup(det_range0=0.5, det_range1=2.5,
+#                              duration=51.2, process_num=1024)
+# data_path = 'data/adc_data21.bin'
 
-# 我们设备的配置
+# 我们设备的配置-示例数据
 # the_radar = Radar_params(numADCSamples=256, numADCBits=16,
 #                          numTX=1, numRX=4, chirpLoop=4,
 #                          Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
 # the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
 #                              duration=40, process_num=40 * 25)
 # data_path = 'data/adc_data_test.bin'
+# adc_data, totalChirps = read_adc_data(data_path, the_radar, the_setup.process_num)
+
+# 我们的设备，王雷实验数据
+the_radar = Radar_params(numADCSamples=256, numADCBits=16,
+                         numTX=1, numRX=4, chirpLoop=2,
+                         Fs=1e7, slope=29.98e12, startFreq=77e9, numLanes=4, model=1)
+the_setup = experiment_setup(det_range0=0.2, det_range1=2.5,
+                             duration=3600, process_num=3600 * 25)
+data_path = 'data/2_adc_data.bin'
 adc_data, totalChirps = read_adc_data(data_path, the_radar, the_setup.process_num)
+
+
+
+
 ##
 """ 2. 信号处理 """
 
